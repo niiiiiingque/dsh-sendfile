@@ -1,0 +1,61 @@
+{
+  "name": "dsh-sendfile",
+  "version": "0.1.4",
+  "description": "发文件：DSH 本地文档附件、内容直达、生成与副本编辑、预览下载",
+  "type": "module",
+  "main": "./src/host.js",
+  "exports": {
+    ".": "./src/host.js",
+    "./client": "./dist/client.js",
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "files": [
+    "src",
+    "dist",
+    "cordis.patch.yml",
+    "README.md",
+    "COMPATIBILITY.md",
+    "LICENSE",
+    "package-lock.json"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check src/host.js && node --check dist/client.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-settings-general"
+      ]
+    }
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "3.18.1",
+    "@firecrawl/anydoc": "0.1.9",
+    "@xmldom/xmldom": "0.9.12",
+    "docx": "9.6.1",
+    "exceljs": "4.4.0",
+    "jszip": "3.10.1",
+    "pptxgenjs": "4.0.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.9",
+    "pdf-lib": "1.17.1",
+    "playwright": "1.62.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "license": "MIT"
+}
