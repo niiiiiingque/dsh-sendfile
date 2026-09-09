@@ -10,7 +10,7 @@ export class AttachmentQueue {
   take(sessionId) { const batch = this.list(sessionId); this.items.set(sessionId, []); this.emit(); return batch; }
   restore(sessionId, batch) { this.items.set(sessionId, [...batch, ...this.list(sessionId)]); this.emit(); }
 }
-export function installSendHook(conversation, queue, settings, notify) {
+export function installSendHook(conversation, queue, settings, notify, markSent) {
   const proto = Object.getPrototypeOf(conversation);
   if (!proto || typeof proto.sendSession !== 'function') throw new Error('此 DSH 版本的发送接口不兼容。');
   const original = proto.sendSession;
@@ -27,7 +27,9 @@ export function installSendHook(conversation, queue, settings, notify) {
     let succeeded = false;
     try {
       const result = await original.call(this, session, composeMessage(text, batch, settings().maxChars), imageIds, mode, signal);
-      succeeded = result?.kind === 'success'; return result;
+      succeeded = result?.kind === 'success';
+      if (succeeded) markSent?.(sessionId, batch.map(item => item.id).filter(Boolean));
+      return result;
     } finally { if (!succeeded) queue.restore(sessionId, batch); }
   }
   wrapped.__sendfile = true; proto.sendSession = wrapped;

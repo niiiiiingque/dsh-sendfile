@@ -43,7 +43,7 @@ var import_react_dom = require("react-dom");
 // src/protocol.js
 var BASE = "/sendfile";
 var SENTINEL = "\u2063";
-var DEFAULTS = Object.freeze({ maxChars: 2e5, maxFileMB: 32 });
+var DEFAULTS = Object.freeze({ maxChars: 2e5, maxFileMB: 32, retentionDays: 7 });
 var READ_EXTS = ["docx", "doc", "xlsx", "xls", "pptx", "pdf", "md", "txt", "csv"];
 var extOf = (name2) => String(name2).split(".").pop().toLowerCase();
 var imageFile = (f) => /^image\//.test(f.type) || /\.(png|jpe?g|gif|webp|avif|bmp|heic|heif)$/i.test(f.name);
@@ -121,7 +121,7 @@ var AttachmentQueue = class {
     this.emit();
   }
 };
-function installSendHook(conversation, queue, settings, notify) {
+function installSendHook(conversation, queue, settings, notify, markSent) {
   const proto = Object.getPrototypeOf(conversation);
   if (!proto || typeof proto.sendSession !== "function") throw new Error("\u6B64 DSH \u7248\u672C\u7684\u53D1\u9001\u63A5\u53E3\u4E0D\u517C\u5BB9\u3002");
   const original = proto.sendSession;
@@ -139,6 +139,7 @@ function installSendHook(conversation, queue, settings, notify) {
     try {
       const result = await original.call(this, session, composeMessage(text, batch, settings().maxChars), imageIds, mode, signal);
       succeeded = result?.kind === "success";
+      if (succeeded) markSent?.(sessionId, batch.map((item) => item.id).filter(Boolean));
       return result;
     } finally {
       if (!succeeded) queue.restore(sessionId, batch);
@@ -235,7 +236,10 @@ function apply(ctx) {
     }
   }
   disposers.push(queue.subscribe(syncSentinel));
-  disposers.push(installSendHook(ctx.get("conversation"), queue, () => config, notify));
+  disposers.push(installSendHook(ctx.get("conversation"), queue, () => config, notify, (sid, ids) => {
+    if (ids.length) api("sent", sid, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }) }).catch(() => {
+    });
+  }));
   async function processFile(sid, localId, file, existingId) {
     try {
       await ready;
@@ -303,7 +307,11 @@ function apply(ctx) {
       ] }),
       removable && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: file.status === "error" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "sf-btn sf-icon-button", title: "\u91CD\u8BD5", "aria-label": `\u91CD\u8BD5 ${file.name}`, onClick: () => retry(file), children: "\u21BB" }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "sf-btn sf-icon-button", title: "\u79FB\u9664\u9644\u4EF6", "aria-label": `\u79FB\u9664 ${file.name}`, onClick: () => queue.remove(file.sessionId, file.localId), children: "\xD7" })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "sf-btn sf-icon-button", title: "\u79FB\u9664\u9644\u4EF6", "aria-label": `\u79FB\u9664 ${file.name}`, onClick: () => {
+          queue.remove(file.sessionId, file.localId);
+          if (file.id) api("discard", file.sessionId, { method: "POST" }, file.id).catch(() => {
+          });
+        }, children: "\xD7" })
       ] })
     ] });
   }
@@ -451,11 +459,12 @@ function apply(ctx) {
   function SettingsRow() {
     const [maxChars, setMaxChars] = (0, import_react.useState)(config.maxChars);
     const [maxFileMB, setMaxFileMB] = (0, import_react.useState)(config.maxFileMB);
+    const [retentionDays, setRetentionDays] = (0, import_react.useState)(config.retentionDays ?? 7);
     const [message, setMessage] = (0, import_react.useState)("");
     async function save() {
       try {
         await ready;
-        const value = await api("config", null, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ maxChars: Number(maxChars), maxFileMB: Number(maxFileMB) }) });
+        const value = await api("config", null, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ maxChars: Number(maxChars), maxFileMB: Number(maxFileMB), retentionDays: Number(retentionDays) }) });
         config = value;
         token = value.token;
         queue.emit();
@@ -478,6 +487,10 @@ function apply(ctx) {
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [
           "\u5355\u6587\u4EF6\u5927\u5C0F\u4E0A\u9650\uFF08MB\uFF09",
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "number", min: "1", max: "64", value: maxFileMB, onChange: (e) => setMaxFileMB(e.target.value) })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [
+          "\u53D1\u9001\u6210\u529F\u540E\u526F\u672C\u4FDD\u7559\u5929\u6570\uFF080 \u4E3A\u4E0D\u81EA\u52A8\u6E05\u7406\uFF09",
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "number", min: "0", max: "90", value: retentionDays, onChange: (e) => setRetentionDays(e.target.value) })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "sf-settings-save", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "sf-btn sf-primary", onClick: save, children: "\u4FDD\u5B58\u8BBE\u7F6E" }),

@@ -49,7 +49,7 @@ export function apply(ctx) {
     } catch { /* Storage quota must not prevent sending. */ }
   }
   disposers.push(queue.subscribe(syncSentinel));
-  disposers.push(installSendHook(ctx.get('conversation'), queue, () => config, notify));
+  disposers.push(installSendHook(ctx.get('conversation'), queue, () => config, notify, (sid, ids) => { if (ids.length) api('sent', sid, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) }).catch(() => {}); }));
   async function processFile(sid, localId, file, existingId) {
     try {
       await ready;
@@ -86,7 +86,7 @@ export function apply(ctx) {
     return <div className="sf-card"><button className="sf-card-main" onClick={() => preview(file)} disabled={!file.id} title={file.name}>
       <span className="sf-file-icon" style={{ '--sf-color': COLORS[extOf(file.name)] || '#657c63' }}>{extOf(file.name).toUpperCase()}</span>
       <span className="sf-file-label"><span className="sf-filename">{file.name}</span><span className={`sf-status ${file.status === 'error' ? 'sf-error' : ''}`}>{prettySize(file.size)} · {file.status ? statusText(file) : file.truncated ? `已截断 · 已发送 ${file.includedChars.toLocaleString()}/${file.totalChars.toLocaleString()} 字符` : '点击预览'}</span></span>
-    </button>{removable && <><span>{file.status === 'error' && <button className="sf-btn sf-icon-button" title="重试" aria-label={`重试 ${file.name}`} onClick={() => retry(file)}>↻</button>}</span><button className="sf-btn sf-icon-button" title="移除附件" aria-label={`移除 ${file.name}`} onClick={() => queue.remove(file.sessionId, file.localId)}>×</button></>}</div>;
+    </button>{removable && <><span>{file.status === 'error' && <button className="sf-btn sf-icon-button" title="重试" aria-label={`重试 ${file.name}`} onClick={() => retry(file)}>↻</button>}</span><button className="sf-btn sf-icon-button" title="移除附件" aria-label={`移除 ${file.name}`} onClick={() => { queue.remove(file.sessionId, file.localId); if (file.id) api('discard', file.sessionId, { method: 'POST' }, file.id).catch(() => {}); }}>×</button></>}</div>;
   }
   function Dock({ sessionId }) {
     const list = useQueue(sessionId); const count = list.reduce((n, f) => n + (f.chars || 0), 0);
@@ -145,9 +145,9 @@ export function apply(ctx) {
   }
   function preview(file) { mountDialog(close => <Preview initial={file} close={close} />); }
   function SettingsRow() {
-    const [maxChars, setMaxChars] = useState(config.maxChars); const [maxFileMB, setMaxFileMB] = useState(config.maxFileMB); const [message, setMessage] = useState('');
-    async function save() { try { await ready; const value = await api('config', null, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ maxChars: Number(maxChars), maxFileMB: Number(maxFileMB) }) }); config = value; token = value.token; queue.emit(); setMessage('设置已保存。'); } catch (e) { setMessage(e.message); } }
-    return <section className="sf-root sf-settings-row"><div className="sf-settings-heading"><strong>发文件插件</strong><span>文档在本机解析，发送后文字交给当前模型</span></div><div className="sf-settings-fields"><label>每条消息最多发送的文档字符数<input type="number" min="1000" max="200000" value={maxChars} onChange={e => setMaxChars(e.target.value)} /></label><p className="sf-note">模型上下文还包括历史消息和工具。出现上下文超限时请调低。</p><label>单文件大小上限（MB）<input type="number" min="1" max="64" value={maxFileMB} onChange={e => setMaxFileMB(e.target.value)} /></label><div className="sf-settings-save"><button className="sf-btn sf-primary" onClick={save}>保存设置</button><span role="status">{message}</span></div><p className="sf-note">不调用云端解析或 OCR，不运行文件中的宏。扫描 PDF 与旧版 PPT 请先在本机转换。</p></div></section>;
+    const [maxChars, setMaxChars] = useState(config.maxChars); const [maxFileMB, setMaxFileMB] = useState(config.maxFileMB); const [retentionDays, setRetentionDays] = useState(config.retentionDays ?? 7); const [message, setMessage] = useState('');
+    async function save() { try { await ready; const value = await api('config', null, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ maxChars: Number(maxChars), maxFileMB: Number(maxFileMB), retentionDays: Number(retentionDays) }) }); config = value; token = value.token; queue.emit(); setMessage('设置已保存。'); } catch (e) { setMessage(e.message); } }
+    return <section className="sf-root sf-settings-row"><div className="sf-settings-heading"><strong>发文件插件</strong><span>文档在本机解析，发送后文字交给当前模型</span></div><div className="sf-settings-fields"><label>每条消息最多发送的文档字符数<input type="number" min="1000" max="200000" value={maxChars} onChange={e => setMaxChars(e.target.value)} /></label><p className="sf-note">模型上下文还包括历史消息和工具。出现上下文超限时请调低。</p><label>单文件大小上限（MB）<input type="number" min="1" max="64" value={maxFileMB} onChange={e => setMaxFileMB(e.target.value)} /></label><label>发送成功后副本保留天数（0 为不自动清理）<input type="number" min="0" max="90" value={retentionDays} onChange={e => setRetentionDays(e.target.value)} /></label><div className="sf-settings-save"><button className="sf-btn sf-primary" onClick={save}>保存设置</button><span role="status">{message}</span></div><p className="sf-note">不调用云端解析或 OCR，不运行文件中的宏。扫描 PDF 与旧版 PPT 请先在本机转换。</p></div></section>;
   }
   for (const [slot, component, order] of [['conversation.input.left', Buttons, 5], ['conversation.input.dock', Dock, 5]]) {
     disposers.push(ctx.slots.inject(slot, () => ctx.slots.register({ name: slot, id: 'sendfile', order }, component)));

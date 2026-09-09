@@ -1,6 +1,6 @@
 {
   "name": "dsh-sendfile",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "发文件：DSH 本地文档附件、内容直达、生成与副本编辑、预览下载",
   "type": "module",
   "main": "./src/host.js",

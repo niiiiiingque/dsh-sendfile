@@ -1,6 +1,6 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { BASE, READ_EXTS, extOf, clampSettings } from './protocol.js';
-export const ROUTES = ['config', 'upload', 'parse', 'list', 'document', 'file', 'view'];
+export const ROUTES = ['config', 'upload', 'parse', 'list', 'document', 'file', 'view', 'sent', 'discard'];
 const escape = text => String(text).replace(/[&<>"']/g, x => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[x]);
 export const fileURL = (meta, action = 'view') => `${BASE}/${action}?sessionId=${encodeURIComponent(meta.sessionId)}&id=${encodeURIComponent(meta.id)}`;
 export const publicMeta = (meta, origin = '') => ({ ...meta, previewUrl: origin + fileURL(meta), downloadUrl: origin + fileURL(meta, 'file') });
@@ -35,12 +35,12 @@ export function createRouter(store, { getSettings, setSettings }) {
       if (!ROUTES.includes(action)) return sendJSON(res, 404, { ok: false, error: '接口不存在。' });
       const method = req.method;
       if (!['GET', 'POST'].includes(method)) return sendJSON(res, 405, { ok: false, error: '不支持此请求方法。' });
-      const mutable = ['upload', 'parse'];
+      const mutable = ['upload', 'parse', 'sent', 'discard'];
       if ((mutable.includes(action) && method !== 'POST') || (!mutable.includes(action) && action !== 'config' && method !== 'GET')) return sendJSON(res, 405, { ok: false, error: '请求方法错误。' });
       if (method === 'POST' && !authorized(req)) return sendJSON(res, 403, { ok: false, error: '连接已更新，请刷新 DSH 后重试。' });
       if (action === 'config') {
         if (method === 'POST') await setSettings(clampSettings(JSON.parse((await readBody(req, 4096)).toString('utf8'))));
-        return sendJSON(res, 200, { ok: true, value: { ...getSettings(), token, version: '0.1.2' } });
+        return sendJSON(res, 200, { ok: true, value: { ...getSettings(), token, version: '0.1.5' } });
       }
       const sessionId = url.searchParams.get('sessionId'); const id = url.searchParams.get('id');
       store.workspace(sessionId);
@@ -58,6 +58,14 @@ export function createRouter(store, { getSettings, setSettings }) {
         return sendJSON(res, 200, { ok: true, value: publicMeta(meta) });
       }
       if (action === 'parse') return sendJSON(res, 200, { ok: true, value: publicMeta(await store.parse(sessionId, id)) });
+      if (action === 'discard') { await store.remove(sessionId, id); return sendJSON(res, 200, { ok: true, value: { removed: id } }); }
+      if (action === 'sent') {
+        const body = JSON.parse((await readBody(req, 8192)).toString('utf8') || '{}');
+        const ids = Array.isArray(body.ids) ? body.ids.slice(0, 20) : [];
+        let marked = 0;
+        for (const one of ids) { try { await store.markSent(sessionId, one); marked++; } catch { /* 已失效的标识直接忽略 */ } }
+        return sendJSON(res, 200, { ok: true, value: { marked } });
+      }
       if (action === 'list') return sendJSON(res, 200, { ok: true, value: (await store.list(sessionId)).map(meta => publicMeta(meta)) });
       if (action === 'document') return sendJSON(res, 200, { ok: true, value: publicMeta(await store.get(sessionId, id, true)) });
       const meta = await store.get(sessionId, id, action === 'view');

@@ -12,6 +12,17 @@ export function safeName(name) {
 const idPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 export function contained(root, target) { const relative = path.relative(root, target); return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative); }
 
+export function shouldPurge(meta, nowMs, retentionDays) {
+  if (!meta || meta.kind !== 'input') return false;
+  const created = Date.parse(meta.createdAt);
+  if (Number.isNaN(created)) return false;
+  if (meta.sentAt) {
+    const sent = Date.parse(meta.sentAt);
+    if (Number.isNaN(sent) || retentionDays <= 0) return false;
+    return nowMs - sent > retentionDays * 86400000;
+  }
+  return nowMs - created > 30 * 86400000;
+}
 export class FileStore {
   constructor(registry) { this.registry = registry; this.pending = new Map(); }
   workspace(sessionId) {
@@ -112,5 +123,45 @@ export class FileStore {
       await this.update(sessionId, id, { status: 'error', error: error.message });
       throw error;
     }
+  }
+  async markSent(sessionId, id) {
+    const current = await this.get(sessionId, id);
+    if (current.kind !== 'input' || current.sentAt) return current;
+    return this.update(sessionId, id, { sentAt: new Date().toISOString() });
+  }
+  async remove(sessionId, id) {
+    const dir = await this.entry(sessionId, id);
+    const meta = await this.get(sessionId, id);
+    if (meta.kind !== 'input') throw new Error('生成的文件不会被自动清理，请在工作区中自行管理。');
+    await fs.rm(dir, { recursive: true, force: true });
+    return true;
+  }
+  async sweepAll(workspacePaths, retentionDays) {
+    const now = Date.now();
+    let purged = 0;
+    for (const ws of workspacePaths) {
+      let real;
+      try { real = await fs.realpath(String(ws)); } catch { continue; }
+      const root = path.join(real, '.dsh-sendfile');
+      let hashDirs;
+      try { const st = await fs.lstat(root); if (!st.isDirectory() || st.isSymbolicLink()) continue; hashDirs = await fs.readdir(root); } catch { continue; }
+      for (const hash of hashDirs) {
+        if (!/^[0-9a-f]{24}$/.test(hash)) continue;
+        const hashDir = path.join(root, hash);
+        let ids;
+        try { ids = await fs.readdir(hashDir); } catch { continue; }
+        for (const id of ids) {
+          if (!idPattern.test(id)) continue;
+          const dir = path.join(hashDir, id);
+          try {
+            const st = await fs.lstat(dir);
+            if (!st.isDirectory() || st.isSymbolicLink()) continue;
+            const meta = JSON.parse(await fs.readFile(path.join(dir, 'meta.json'), 'utf8'));
+            if (shouldPurge(meta, now, retentionDays) && contained(root, await fs.realpath(dir))) { await fs.rm(dir, { recursive: true, force: true }); purged++; }
+          } catch { /* 读不动的条目保持原样，不误删 */ }
+        }
+      }
+    }
+    return purged;
   }
 }

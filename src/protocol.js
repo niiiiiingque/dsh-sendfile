@@ -1,6 +1,6 @@
 export const BASE = '/sendfile';
 export const SENTINEL = '\u2063';
-export const DEFAULTS = Object.freeze({ maxChars: 200000, maxFileMB: 32 });
+export const DEFAULTS = Object.freeze({ maxChars: 200000, maxFileMB: 32, retentionDays: 7 });
 export const READ_EXTS = ['docx', 'doc', 'xlsx', 'xls', 'pptx', 'pdf', 'md', 'txt', 'csv'];
 export const OUTPUT_EXTS = ['docx', 'xlsx', 'pptx', 'md', 'txt', 'csv', 'html'];
 export const extOf = name => String(name).split('.').pop().toLowerCase();
@@ -8,9 +8,11 @@ export const imageFile = f => /^image\//.test(f.type) || /\.(png|jpe?g|gif|webp|
 export function clampSettings(value = {}) {
   const maxChars = Number(value.maxChars ?? DEFAULTS.maxChars);
   const maxFileMB = Number(value.maxFileMB ?? DEFAULTS.maxFileMB);
+  const retentionDays = Number(value.retentionDays ?? DEFAULTS.retentionDays);
   if (!Number.isInteger(maxChars) || maxChars < 1000 || maxChars > 200000) throw new Error('每条消息的文档字符上限应为 1,000 至 200,000。');
   if (!Number.isInteger(maxFileMB) || maxFileMB < 1 || maxFileMB > 64) throw new Error('单文件上限应为 1 至 64 MB。');
-  return { maxChars, maxFileMB };
+  if (!Number.isInteger(retentionDays) || retentionDays < 0 || retentionDays > 90) throw new Error('发送后副本保留天数应为 0 至 90（0 表示不自动清理）。');
+  return { maxChars, maxFileMB, retentionDays };
 }
 export function truncateParagraphs(text, limit) {
   if (text.length <= limit) return { text, includedChars: text.length, totalChars: text.length, truncated: false };
