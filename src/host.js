@@ -8,7 +8,7 @@ export const name = 'dsh-sendfile';
 export const inject = ['webServer', 'workspaceRegistry', 'tools', 'settings'];
 export function apply(ctx) {
   const namespace = 'sendfile';
-  const section = ctx.settings.register(namespace, z.object({ maxChars: z.number().min(1000).max(200000).default(200000), maxFileMB: z.number().min(1).max(64).default(32), retentionDays: z.number().int().min(0).max(90).default(7) }), { base: DEFAULTS, validate: clampSettings });
+  const section = ctx.settings.register(namespace, z.object({ maxChars: z.number().min(1000).max(200000).default(200000), maxFileMB: z.number().min(1).max(64).default(32), retentionDays: z.number().min(0).max(90).default(7) }), { base: DEFAULTS, validate: clampSettings });
   const store = new FileStore(ctx.workspaceRegistry);
   const handler = createRouter(store, { getSettings: () => clampSettings(section.get()), setSettings: next => ctx.settings.replace(namespace, next) });
   for (const route of ROUTES) ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: `${BASE}/${route}`, handler }), `sendfile ${route}`);
